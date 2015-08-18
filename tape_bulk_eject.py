@@ -67,7 +67,7 @@ class AutoLoaderInterface(object):
         self._last_access = int(time.time()) - self.DELAY
 
     def _query(self, page, data=None, headers=None):
-        """Queries the autoloader's web interface. Enforces delay timer.
+        """Query the autoloader's web interface. Enforces delay timer.
 
         :param str page: Suffix of the url (e.g. 'commands.html').
         :param dict data: POST data to send.
@@ -104,7 +104,7 @@ class AutoLoaderInterface(object):
         return html
 
     def update_inventory(self):
-        """
+        """Todo.
 
         :return:
         """
