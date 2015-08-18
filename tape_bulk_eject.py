@@ -134,20 +134,50 @@ def get_arguments(argv=None):
     return parser.parse_args(args=argv if argv is not None else sys.argv[1:])
 
 
-def combine_config(parsed_args):
+def setup_logging(arguments):
+    """Setup console logging. Info and below go to stdout, others go to stderr.
+
+    :param arguments: Argparse Namespace object from get_arguments().
+
+    :return: Same Argparse Namespace object in arguments.
+    """
+    verbose = arguments.verbose
+    format_ = '%(asctime)s %(levelname)-8s %(name)-20s %(message)s' if verbose else '%(message)s'
+    level = logging.DEBUG if verbose else logging.INFO
+
+    handler_stdout = logging.StreamHandler(sys.stdout)
+    handler_stdout.setFormatter(logging.Formatter(format_))
+    handler_stdout.setLevel(logging.DEBUG)
+    handler_stdout.addFilter(
+        type('Filter2', (logging.Filter, ), {'filter': lambda _, rec: rec.levelno <= logging.INFO})
+    )
+
+    handler_stderr = logging.StreamHandler(sys.stderr)
+    handler_stderr.setFormatter(logging.Formatter(format_))
+    handler_stderr.setLevel(logging.WARNING)
+
+    root_logger = logging.getLogger()
+    root_logger.setLevel(level)
+    root_logger.addHandler(handler_stdout)
+    root_logger.addHandler(handler_stderr)
+
+    return arguments
+
+
+def combine_config(arguments):
     """Read configuration file and validate command line arguments.
 
-    :param parsed_args: Argparse Namespace object from get_arguments().
+    :param arguments: Argparse Namespace object from get_arguments().
 
     :return: User input data.
     :rtype: dict
     """
     logger = logging.getLogger('combine_config')
 
-    # Get list of tapes from parsed_args.
-    logger.debug('Reading parsed_args.tapes: %s', str(parsed_args.tapes))
-    tapes = '|'.join(parsed_args.tapes).replace(' ', '|').strip().strip('|').split('|')
-    if not tapes:
+    # Get list of tapes from arguments.
+    logger.debug('Reading arguments.tapes: %s', str(arguments.tapes))
+    tapes = '|'.join(arguments.tapes).replace(' ', '|').strip().strip('|').split('|')
+    if not tapes or not all(tapes):
         logger.error('No tapes specified.')
         raise ExitDueToError
     logger.debug('Got: %s', str(tapes))
@@ -198,12 +228,8 @@ def main(config):
 
 if __name__ == '__main__':
     signal.signal(signal.SIGINT, lambda *_: getattr(os, '_exit')(0))  # Properly handle Control+C.
-    _ARGUMENTS = get_arguments()
-    logging.basicConfig(format='%(asctime)s %(levelname)-8s %(name)-20s %(message)s',
-                        level=logging.DEBUG if _ARGUMENTS.verbose else logging.INFO)
-    _COMBINED_CONFIG = combine_config(_ARGUMENTS)
     try:
-        main(_COMBINED_CONFIG)
+        main(combine_config(setup_logging(get_arguments())))
     except ExitDueToError:
         logging.critical('EXITING DUE TO ERROR!')
         sys.exit(1)
