@@ -176,7 +176,7 @@ def combine_config(arguments):
 
     # Get list of tapes from arguments.
     logger.debug('Reading arguments.tapes: %s', str(arguments.tapes))
-    tapes = '|'.join(arguments.tapes).replace(' ', '|').strip().strip('|').split('|')
+    tapes = sorted(set('|'.join(arguments.tapes).replace(' ', '|').strip().strip('|').split('|')))
     if not tapes or not all(tapes):
         logger.error('No tapes specified.')
         raise ExitDueToError
@@ -211,6 +211,11 @@ def combine_config(arguments):
         raise ExitDueToError
     except KeyError as exc:
         logger.error('Missing key from JSON dict: %s', exc.message)
+        raise ExitDueToError
+
+    # Catch empty values.
+    if not all((host_name, user_name, pass_word)):
+        logger.error('One or more JSON value is empty.')
         raise ExitDueToError
 
     return {'tapes': tapes, 'host': host_name, 'user': user_name, 'pass': pass_word}
