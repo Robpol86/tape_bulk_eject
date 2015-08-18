@@ -38,7 +38,7 @@ class ExitDueToError(Exception):
     pass
 
 
-class AutoLoaderInterface(object):
+class AutoLoader(object):
     """Interfaces with the autoloader over its HTTP web interface.
 
     :cvar int DELAY: Number of seconds to wait between queries. The web interface is very fragile.
@@ -103,12 +103,20 @@ class AutoLoaderInterface(object):
         html = response.read(10240)
         return html
 
+    def eject(self):
+        """Todo.
+
+        :return:
+        """
+        pass
+
     def update_inventory(self):
         """Todo.
 
         :return:
         """
         html = self._query('commands.html')
+        assert html  # TODO
 
 
 def get_arguments(argv=None):
@@ -148,8 +156,8 @@ def combine_config(parsed_args):
     json_file = os.path.join(os.path.expanduser('~'), '.pv124t.json')
     logger.debug('Reading: %s', json_file)
     try:
-        with open(json_file) as f:
-            json_file_data = f.read(1024)
+        with open(json_file) as handle:
+            json_file_data = handle.read(1024)
     except IOError as exc:
         logger.error('Failed to read %s: %s', json_file, str(exc))
         raise ExitDueToError
@@ -184,16 +192,18 @@ def main(config):
     :param dict config: Parsed command line and config file data.
     """
     logger = logging.getLogger('main')
+    assert config  # TODO
+    assert logger  # TODO
 
 
 if __name__ == '__main__':
     signal.signal(signal.SIGINT, lambda *_: getattr(os, '_exit')(0))  # Properly handle Control+C.
-    arguments = get_arguments()
+    _ARGUMENTS = get_arguments()
     logging.basicConfig(format='%(asctime)s %(levelname)-8s %(name)-20s %(message)s',
-                        level=logging.DEBUG if arguments.verbose else logging.INFO)
-    combined_config = combine_config(arguments)
+                        level=logging.DEBUG if _ARGUMENTS.verbose else logging.INFO)
+    _COMBINED_CONFIG = combine_config(_ARGUMENTS)
     try:
-        main(combined_config)
+        main(_COMBINED_CONFIG)
     except ExitDueToError:
         logging.critical('EXITING DUE TO ERROR!')
         sys.exit(1)
