@@ -9,8 +9,5 @@ def test_bad_host(caplog, host):
     with pytest.raises(ExitDueToError):
         getattr(autoloader, '_query')('')
     log = caplog.records()[-1].message
-    expected = 'URL "{}" is invalid: {}'.format(
-        'http://{}/'.format(host),
-        '<urlopen error [Errno 8] nodename nor servname provided, or not known>',
-    )
-    assert log == expected
+    assert log.startswith('URL "http://{}/" is invalid: '.format(host))
+    assert log.endswith('not known>')
