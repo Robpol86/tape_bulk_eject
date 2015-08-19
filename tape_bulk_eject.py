@@ -29,6 +29,23 @@ __author__ = '@Robpol86'
 __license__ = 'MIT'
 
 
+class InfoFilter(logging.Filter):
+    """Filter out non-info and non-debug logging statements.
+
+    From: https://stackoverflow.com/questions/16061641/python-logging-split/16066513#16066513
+    """
+
+    def filter(self, record):
+        """Filter method.
+
+        :param record: Log record object.
+
+        :return: Keep or ignore this record.
+        :rtype: bool
+        """
+        return record.levelno <= logging.INFO
+
+
 class ExitDueToError(Exception):
     """Raised on a handled error Causes exit code 1.
 
@@ -134,10 +151,11 @@ def get_arguments(argv=None):
     return parser.parse_args(args=argv if argv is not None else sys.argv[1:])
 
 
-def setup_logging(arguments):
+def setup_logging(arguments, logger=None):
     """Setup console logging. Info and below go to stdout, others go to stderr.
 
     :param arguments: Argparse Namespace object from get_arguments().
+    :param str logger: Which logger to set handlers to. Used for testing.
 
     :return: Same Argparse Namespace object in arguments.
     """
@@ -148,15 +166,13 @@ def setup_logging(arguments):
     handler_stdout = logging.StreamHandler(sys.stdout)
     handler_stdout.setFormatter(logging.Formatter(format_))
     handler_stdout.setLevel(logging.DEBUG)
-    handler_stdout.addFilter(
-        type('Filter2', (logging.Filter, ), {'filter': lambda _, rec: rec.levelno <= logging.INFO})
-    )
+    handler_stdout.addFilter(InfoFilter())
 
     handler_stderr = logging.StreamHandler(sys.stderr)
     handler_stderr.setFormatter(logging.Formatter(format_))
     handler_stderr.setLevel(logging.WARNING)
 
-    root_logger = logging.getLogger()
+    root_logger = logging.getLogger(logger)
     root_logger.setLevel(level)
     root_logger.addHandler(handler_stdout)
     root_logger.addHandler(handler_stderr)
