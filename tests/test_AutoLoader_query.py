@@ -15,17 +15,18 @@ def test_bad_host(caplog, host):
     assert log.endswith('not known>')
 
 
-def test_bad_page(monkeypatch, caplog):
+@pytest.mark.parametrize('code', [404, 401])
+def test_bad_host_creds(monkeypatch, caplog, code):
     def urlopen(_):
-        raise urllib2.HTTPError('http://124t.local/dne.html', 404, "Can't find file", None, None)
+        raise urllib2.HTTPError('http://124t.local/page.html', code, '', None, None)
     monkeypatch.setattr('urllib2.urlopen', urlopen)
 
     autoloader = AutoLoader('124t.local', 'user', 'pw')
     with pytest.raises(ExitDueToError):
-        getattr(autoloader, '_query')('dne.html')
+        getattr(autoloader, '_query')('page.html')
     log = caplog.records()[-1].message
-    expected = (
-        "URL \"http://124t.local/dne.html\" did not return HTTP 200: "
-        "HTTP Error 404: Can't find file"
-    )
+    if code == 404:
+        expected = '404 Not Found on: http://124t.local/page.html'
+    else:
+        expected = '401 Unauthorized (bad credentials?) on: http://124t.local/page.html'
     assert log == expected

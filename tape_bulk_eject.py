@@ -119,7 +119,12 @@ class AutoLoader(object):
         try:
             response = urllib2.urlopen(request)
         except urllib2.HTTPError as exc:
-            logger.error('URL "%s" did not return HTTP 200: %s', url, str(exc))
+            if exc.code == 404:
+                logger.error('404 Not Found on: %s', url)
+            elif exc.code == 401:
+                logger.error('401 Unauthorized (bad credentials?) on: %s', url)
+            else:
+                logger.error('URL "%s" did not return HTTP 200: %s', url, str(exc))
             raise ExitDueToError
         except urllib2.URLError as exc:
             logger.error('URL "%s" is invalid: %s', url, str(exc))
