@@ -63,7 +63,7 @@ class AutoLoader(object):
     :ivar str url: URL prefix of the autoloader (e.g. 'http://192.168.0.50/').
     :ivar str auth: HTTP basic authentication credentials (base64 encoded).
     :ivar dict inventory: Tape positions. 16 slots + drive (17), picker (18), and mail slot (19).
-    :ivar int _last_access: Unix time of last HTTP query.
+    :ivar float _last_access: Unix time of last HTTP query.
     """
 
     DELAY = 10
@@ -81,7 +81,7 @@ class AutoLoader(object):
         keys = [str(i) for i in range(1, 17)] + ['drive', 'picker', 'mailslot']
         self.inventory = {k: '' for k in keys}
 
-        self._last_access = int(time.time()) - self.DELAY
+        self._last_access = time.time() - self.DELAY
 
     def _query(self, page, data=None, headers=None):
         """Query the autoloader's web interface. Enforces delay timer.
@@ -94,7 +94,7 @@ class AutoLoader(object):
         :rtype: str
         """
         logger = logging.getLogger('AutoLoaderInterface._query')
-        sleep_for = max(0, self.DELAY - (int(time.time()) - self._last_access))
+        sleep_for = max(0, self.DELAY - (time.time() - self._last_access))
         if sleep_for:
             logger.debug('Sleeping for %d second(s).', sleep_for)
             time.sleep(sleep_for)
@@ -116,8 +116,13 @@ class AutoLoader(object):
             request.add_header(key, value)
 
         # Send request and get response.
-        response = urllib2.urlopen(request)  # TODO error handle.
+        try:
+            response = urllib2.urlopen(request)
+        except urllib2.URLError as exc:
+            logger.error('URL "%s" is invalid: %s', url, str(exc))
+            raise ExitDueToError
         html = response.read(10240)
+        self._last_access = time.time()
         return html
 
     def eject(self):
