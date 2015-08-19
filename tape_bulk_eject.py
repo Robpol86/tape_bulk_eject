@@ -118,6 +118,9 @@ class AutoLoader(object):
         # Send request and get response.
         try:
             response = urllib2.urlopen(request)
+        except urllib2.HTTPError as exc:
+            logger.error('URL "%s" did not return HTTP 200: %s', url, str(exc))
+            raise ExitDueToError
         except urllib2.URLError as exc:
             logger.error('URL "%s" is invalid: %s', url, str(exc))
             raise ExitDueToError
