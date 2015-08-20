@@ -16,17 +16,27 @@ from __future__ import print_function
 
 import argparse
 import base64
+import HTMLParser
 import json
 import logging
 import os
+import re
 import signal
 import sys
 import time
-import urllib
 import urllib2
 
 __author__ = '@Robpol86'
 __license__ = 'MIT'
+
+
+class ExitDueToError(Exception):
+    """Raised on a handled error Causes exit code 1.
+
+    Any other exception raised is considered a bug.
+    """
+
+    pass
 
 
 class InfoFilter(logging.Filter):
@@ -46,13 +56,65 @@ class InfoFilter(logging.Filter):
         return record.levelno <= logging.INFO
 
 
-class ExitDueToError(Exception):
-    """Raised on a handled error Causes exit code 1.
+class CommandsHTMLParser(HTMLParser.HTMLParser):
+    """Parses commands.html from a Dell PowerVault 124t tape autoloader's web interface.
 
-    Any other exception raised is considered a bug.
+    :cvar RE_ONCLICK: <img /> "onclick" attribute parser (e.g. onClick="from_to(mailslot)").
+
+    :ivar bool in_center_tag: If parser is within <center /> on the page. There's only one.
+    :ivar dict inventory: Populates this with the current inventory parsed from HTML.
     """
 
-    pass
+    RE_ONCLICK = re.compile(r'from_to\((?:slot(\d+)|(drive|picker|mailslot))\)')
+
+    def __init__(self, inventory):
+        """Constructor."""
+        HTMLParser.HTMLParser.__init__(self)
+        self.in_center_tag = False
+        self.inventory = inventory
+
+    def handle_starttag(self, tag, attrs):
+        """Called on all starting tags.
+
+        :param str tag: Current HTML tag (e.g. 'center' or 'img').
+        :param list attrs: List of attributes (key value pairs) on this HTML tag.
+        """
+        if tag == 'center':
+            self.in_center_tag = True
+        elif tag == 'img' and self.in_center_tag:
+            attributes = dict(attrs)
+            if 'onclick' in attributes:
+                self.update_slot(attributes)
+
+    def handle_endtag(self, tag):
+        """Called on all ending/closing tags.
+
+        :param str tag: Current HTML tag (e.g. 'center' or 'img').
+        """
+        if tag == 'center':
+            self.in_center_tag = False
+
+    def update_slot(self, attrs):
+        """Update self.inventory with current state of a single slot.
+
+        :param dict attrs: Attributes of <img /> tag representing a slot.
+        """
+        logger = logging.getLogger('CommandsHTMLParser.update_slot')
+        logger.debug('img tag attributes: %s', str(attrs))
+        try:
+            onclick, title = attrs['onclick'], attrs['title']
+        except KeyError as exc:
+            logger.error('Attribute "%s" missing from img tag: %s', exc.message, str(attrs))
+            raise ExitDueToError
+        try:
+            slot = [i for i in self.RE_ONCLICK.match(onclick).groups() if i][0]
+        except AttributeError:
+            logger.error('Attribute "onclick" in img tag is invalid: %s', onclick)
+            raise ExitDueToError
+        if slot not in self.inventory:
+            logger.error('Unknown slot: %s', slot)
+            raise ExitDueToError
+        self.inventory[slot] = '' if title == 'Empty' else title
 
 
 class AutoLoader(object):
@@ -83,42 +145,26 @@ class AutoLoader(object):
 
         self._last_access = time.time() - self.DELAY
 
-    def _query(self, page, data=None, headers=None):
+    def _query(self, request):
         """Query the autoloader's web interface. Enforces delay timer.
 
-        :param str page: Suffix of the url (e.g. 'commands.html').
-        :param dict data: POST data to send.
-        :param dict headers: HTTP headers to include in the request.
+        :param urllib2.Request request: urllib2.Request instance with data/headers already added.
 
         :return: HTML response payload.
         :rtype: str
         """
-        logger = logging.getLogger('AutoLoaderInterface._query')
+        logger = logging.getLogger('AutoLoader._query')
         sleep_for = max(0, self.DELAY - (time.time() - self._last_access))
         if sleep_for:
             logger.debug('Sleeping for %d second(s).', sleep_for)
             time.sleep(sleep_for)
             logger.debug('Done sleeping.')
 
-        # Prepare request.
-        url = self.url + page
-        logger.debug('Building request for: %s', url)
-        request = urllib2.Request(url)
-        if data:
-            logger.debug('Encoding data: %s', str(data))
-            data_encoded = urllib.urlencode(data)
-            logger.debug('Adding encoded data: %s', data_encoded)
-            request.add_data(data_encoded)
-        headers = headers or dict()
-        headers['Authorization'] = 'Basic {}'.format(self.auth)
-        for key, value in headers.iteritems():
-            logger.debug('Adding "%s" header: %s', key, value)
-            request.add_header(key, value)
-
         # Send request and get response.
         try:
             response = urllib2.urlopen(request)
         except urllib2.HTTPError as exc:
+            url = request.get_full_url()
             if exc.code == 404:
                 logger.error('404 Not Found on: %s', url)
             elif exc.code == 401:
@@ -127,9 +173,11 @@ class AutoLoader(object):
                 logger.error('URL "%s" did not return HTTP 200: %s', url, str(exc))
             raise ExitDueToError
         except urllib2.URLError as exc:
+            url = request.get_full_url()
             logger.error('URL "%s" is invalid: %s', url, str(exc))
             raise ExitDueToError
-        html = response.read(10240)
+
+        html = response.read(102400)
         self._last_access = time.time()
         return html
 
@@ -141,12 +189,11 @@ class AutoLoader(object):
         pass
 
     def update_inventory(self):
-        """Todo.
-
-        :return:
-        """
-        html = self._query('commands.html')
-        assert html  # TODO
+        """Get current tape positions in the autoloader and updates self.inventory."""
+        request = urllib2.Request(self.url + 'commands.html')
+        html = self._query(request)
+        parser = CommandsHTMLParser(self.inventory)
+        parser.feed(html)
 
 
 def get_arguments(argv=None):
