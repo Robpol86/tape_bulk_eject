@@ -170,7 +170,7 @@ class AutoLoader(object):
             elif exc.code == 401:
                 logger.error('401 Unauthorized (bad credentials?) on: %s', url)
             else:
-                logger.error('URL "%s" did not return HTTP 200: %s', url, str(exc))
+                logger.error('%s returned HTTP %s instead of 200.', url, exc.code)
             raise ExitDueToError
         except urllib2.URLError as exc:
             url = request.get_full_url()
