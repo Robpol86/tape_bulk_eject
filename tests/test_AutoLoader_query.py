@@ -1,3 +1,5 @@
+import StringIO
+import time
 import urllib2
 
 import pytest
@@ -34,3 +36,19 @@ def test_bad_host_creds(monkeypatch, caplog, code):
     else:
         expected = 'http://124t.local/ returned HTTP {} instead of 200.'.format(code)
     assert log == expected
+
+
+def test_rate_limiting(monkeypatch):
+    def urlopen(_):
+        return StringIO.StringIO('test67')
+    monkeypatch.setattr('urllib2.urlopen', urlopen)
+
+    autoloader = AutoLoader('124t.local', 'user', 'pw')
+    request = urllib2.Request(autoloader.url)
+    start_time = time.time()
+    monkeypatch.setattr(AutoLoader, 'DELAY', 1)
+
+    assert getattr(autoloader, '_query')(request) == 'test67'
+    assert time.time() - start_time < 0.1
+    assert getattr(autoloader, '_query')(request) == 'test67'
+    assert time.time() - start_time > 0.9
