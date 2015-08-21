@@ -56,7 +56,7 @@ class InfoFilter(logging.Filter):
         return record.levelno <= logging.INFO
 
 
-class CommandsHTMLParser(HTMLParser.HTMLParser):
+class Parser(HTMLParser.HTMLParser):
     """Parses commands.html from a Dell PowerVault 124t tape autoloader's web interface.
 
     :cvar RE_ONCLICK: <img /> onclick attribute parser (e.g. onClick="from_to(mailslot)").
@@ -99,7 +99,7 @@ class CommandsHTMLParser(HTMLParser.HTMLParser):
 
         :param dict attrs: Attributes of <img /> tag representing a slot.
         """
-        logger = logging.getLogger('CommandsHTMLParser.update_slot')
+        logger = logging.getLogger('Parser.update_slot')
         logger.debug('img tag attributes: %s', str(attrs))
         onclick, title = attrs['onclick'], attrs['title']
         try:
@@ -201,11 +201,11 @@ class AutoLoader(object):
         if not html:
             request = urllib2.Request(self.url + 'commands.html')
             html = self._query(request)
-        if not CommandsHTMLParser.RE_ONCLICK.search(html):
+        if not Parser.RE_ONCLICK.search(html):
             logger = logging.getLogger('AutoLoader.update_inventory')
             logger.error('Invalid HTML, found no regex matches.')
             raise ExitDueToError
-        parser = CommandsHTMLParser(self.inventory)
+        parser = Parser(self.inventory)
         parser.feed(html)
 
 
