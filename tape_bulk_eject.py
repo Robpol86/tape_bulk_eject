@@ -83,7 +83,7 @@ class CommandsHTMLParser(HTMLParser.HTMLParser):
             self.in_center_tag = True
         elif tag == 'img' and self.in_center_tag:
             attributes = dict(attrs)
-            if 'onclick' in attributes:
+            if 'onclick' in attributes and 'title' in attributes:
                 self.update_slot(attributes)
 
     def handle_endtag(self, tag):
@@ -101,11 +101,7 @@ class CommandsHTMLParser(HTMLParser.HTMLParser):
         """
         logger = logging.getLogger('CommandsHTMLParser.update_slot')
         logger.debug('img tag attributes: %s', str(attrs))
-        try:
-            onclick, title = attrs['onclick'], attrs['title']
-        except KeyError as exc:
-            logger.error('Attribute "%s" missing from img tag: %s', exc.message, str(attrs))
-            raise ExitDueToError
+        onclick, title = attrs['onclick'], attrs['title']
         try:
             slot = [i for i in self.RE_ONCLICK.match(onclick).groups() if i][0]
         except AttributeError:
