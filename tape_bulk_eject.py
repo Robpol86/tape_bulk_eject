@@ -59,7 +59,7 @@ class InfoFilter(logging.Filter):
 class CommandsHTMLParser(HTMLParser.HTMLParser):
     """Parses commands.html from a Dell PowerVault 124t tape autoloader's web interface.
 
-    :cvar RE_ONCLICK: <img /> "onclick" attribute parser (e.g. onClick="from_to(mailslot)").
+    :cvar RE_ONCLICK: <img /> onclick attribute parser (e.g. onClick="from_to(mailslot)").
 
     :ivar bool in_center_tag: If parser is within <center /> on the page. There's only one.
     :ivar dict inventory: Populates this with the current inventory parsed from HTML.
@@ -315,9 +315,35 @@ def main(config):
 
     :param dict config: Parsed command line and config file data.
     """
+    total = len(config['tapes'])
     logger = logging.getLogger('main')
-    assert config  # TODO
-    assert logger  # TODO
+
+    logger.info('Connecting to autoloader and reading tape inventory...')
+    autoloader = AutoLoader(config['host'], config['user'], config['pass'])
+    autoloader.update_inventory()
+    for tape in config['tapes']:
+        if tape not in autoloader.inventory.values():
+            logger.error('Requested tape not found in autoloader: %s', tape)
+            raise ExitDueToError
+
+    while config['tapes']:
+        # Make sure mailslot and picker are clear.
+        if autoloader.inventory['mailslot']:
+            logger.info('Tape in mailslot, remove to continue...')
+            autoloader.update_inventory()
+            continue
+        if autoloader.inventory['picker']:
+            logger.info('Tape in picker, remove to continue...')
+            autoloader.update_inventory()
+            continue
+
+        # Eject.
+        tape = config['tapes'].pop()
+        left = len(config['tapes'])
+        logger.info('Ejecting %s (%d other%s left)...', tape, left, '' if left == 1 else 's')
+        autoloader.eject(tape)
+
+    logger.info('Ejected %d tape%s.', total, '' if total == 1 else 's')
 
 
 if __name__ == '__main__':
