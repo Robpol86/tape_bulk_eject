@@ -178,7 +178,9 @@ class AutoLoader(object):
             raise ExitDueToError
 
         html = response.read(102400)
+        logger.debug('Got HTML from autoloader: %s', html)
         self._last_access = time.time()
+        logger.debug('Set _last_access to %f', self._last_access)
         return html
 
     def eject(self):
@@ -192,6 +194,10 @@ class AutoLoader(object):
         """Get current tape positions in the autoloader and updates self.inventory."""
         request = urllib2.Request(self.url + 'commands.html')
         html = self._query(request)
+        if not CommandsHTMLParser.RE_ONCLICK.search(html):
+            logger = logging.getLogger('AutoLoader.update_inventory')
+            logger.error('Invalid HTML, found no regex matches.')
+            raise ExitDueToError
         parser = CommandsHTMLParser(self.inventory)
         parser.feed(html)
 
