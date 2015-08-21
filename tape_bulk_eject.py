@@ -179,17 +179,28 @@ class AutoLoader(object):
         logger.debug('Set _last_access to %f', self._last_access)
         return html
 
-    def eject(self):
-        """Todo.
+    def eject(self, tape):
+        """Perform tape move to the mailslot thereby "ejecting" it.
 
-        :return:
+        Blocks during entire move operation. Once done self.inventory is updated.
+
+        :param str tape: The tape to eject.
         """
-        pass
-
-    def update_inventory(self):
-        """Get current tape positions in the autoloader and updates self.inventory."""
-        request = urllib2.Request(self.url + 'commands.html')
+        slot = [k for k, v in self.inventory.iteritems() if v == tape][0]
+        request = urllib2.Request(self.url + 'move.cgi')
+        request.data = 'from={}&to=18&submit=submit'.format(slot)
+        request.headers['Authorization'] = 'Basic {}'.format(self.auth)
         html = self._query(request)
+        self.update_inventory(html)
+
+    def update_inventory(self, html=None):
+        """Get current tape positions in the autoloader and updates self.inventory.
+
+        :param str html: Parse this html if set. Otherwise requests HTML from autoloader.
+        """
+        if not html:
+            request = urllib2.Request(self.url + 'commands.html')
+            html = self._query(request)
         if not CommandsHTMLParser.RE_ONCLICK.search(html):
             logger = logging.getLogger('AutoLoader.update_inventory')
             logger.error('Invalid HTML, found no regex matches.')

@@ -80,7 +80,7 @@ def test_valid(monkeypatch):
     def urlopen(_):
         html = """
             <center>
-                <img src="tape.gif" title="100016FA" onclick="from_to(slot16)" />
+                <img src="tape.gif" title="10016FA" onclick="from_to(slot16)" />
                 <img src="tape.gif" title="Empty" onclick="from_to(mailslot)" />
                 <img src="tape.gif" title="Empty" onclick="from_to(picker)" />
                 <img src="tape.gif" title="Empty" onclick="from_to(drive)" />
@@ -99,7 +99,7 @@ def test_valid(monkeypatch):
         '7': '00007FA',
         '8': '00008FA',
         '9': '', '10': '', '11': '', '12': '', '13': '', '14': '', '15': '',
-        '16': '100016FA',
+        '16': '10016FA',
         'drive': '',
         'picker': '',
         'mailslot': '',
