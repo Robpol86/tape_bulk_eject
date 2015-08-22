@@ -214,7 +214,7 @@ class AutoLoader(object):
         parser = Parser(self.inventory)
         self.inventory.clear()
         parser.feed(html)
-        logger.debug('Inventory is: %s', str(self.inventory))
+        logger.debug('Loaded tapes: %s', '|'.join(sorted(self.inventory)))
 
 
 def get_arguments(argv=None):
@@ -318,39 +318,68 @@ def combine_config(arguments):
     return {'tapes': tapes, 'host': host_name, 'user': user_name, 'pass': pass_word}
 
 
+def eject_one_tape(autoloader, tapes):
+    """Eject last tape in the sorted list.
+
+    :param AutoLoader autoloader: AutoLoader class instance.
+    :param list tapes: List of tape labels.
+    """
+    logger = logging.getLogger('eject_one_tape')
+    tape = tapes.pop()
+    left = len(tapes)
+    logger.info('Ejecting %s (%d other%s left)...', tape, left, '' if left == 1 else 's')
+
+    # Eject the tape.
+    try:
+        autoloader.eject(tape)
+    except TapeEjectError:
+        tapes.append(tape)
+    else:
+        return
+
+    # Tape didn't eject.
+    if autoloader.inventory[tape] == 'drive':
+        logger.warning('Tape failed to eject from drive. Drive locked by software? Retrying.')
+    else:
+        logger.info("Autoloader lied, %s didn't eject. Retrying.", tape)
+
+
 def main(config):
     """Main function of program.
 
     :param dict config: Parsed command line and config file data.
     """
-    total = len(config['tapes'])
     logger = logging.getLogger('main')
-
     logger.info('Connecting to autoloader and reading tape inventory...')
     autoloader = AutoLoader(config['host'], config['user'], config['pass'])
     autoloader.update_inventory()
+
+    # Purge missing tapes.
+    tapes = list()
     for tape in config['tapes']:
         if tape not in autoloader.inventory:
-            logger.error('Requested tape not found in autoloader: %s', tape)
-            raise ExitDueToError
-
-    while config['tapes']:
-        # Make sure mailslot and picker are clear.
-        if 'mailslot' in autoloader.inventory.values():
-            logger.info('Tape in mailslot, remove to continue...')
-            autoloader.update_inventory()
+            logger.info('%s not in autoloader, skipping.', tape)
             continue
-        if 'picker' in autoloader.inventory.values():
-            logger.info('Tape in picker, remove to continue...')
+        if autoloader.inventory[tape] == 'mailslot':
+            logger.error('%s already in mailslot, skipping.', tape)
+            continue
+        tapes.append(tape)
+    if not tapes:
+        logging.info('No tapes to eject. Nothing to do.')
+        return
+
+    while tapes:
+        # Make sure mailslot and picker are clear.
+        blockers = sorted(s for s in autoloader.inventory.values() if s in ('mailslot', 'picker'))
+        if blockers:
+            logger.info('Tape in %s, remove to continue...', blockers[0])
             autoloader.update_inventory()
             continue
 
         # Eject.
-        tape = config['tapes'].pop()
-        left = len(config['tapes'])
-        logger.info('Ejecting %s (%d other%s left)...', tape, left, '' if left == 1 else 's')
-        autoloader.eject(tape)
+        eject_one_tape(autoloader, tapes)
 
+    total = len(config['tapes'])
     logger.info('Ejected %d tape%s.', total, '' if total == 1 else 's')
 
 
