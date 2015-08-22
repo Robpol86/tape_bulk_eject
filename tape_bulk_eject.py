@@ -155,6 +155,7 @@ class Autoloader(object):
         """Query the autoloader's web interface. Enforces delay timer.
 
         :raise HandledError: On handled errors. Logs before raising. Program should exit.
+        :raise AutoloaderError: On HTTP 401 errors when querying the web interface.
 
         :param urllib2.Request request: urllib2.Request instance with data/headers already added.
         :param bool no_delay: Exclude this query from sleeping and updating last_access.
@@ -180,7 +181,8 @@ class Autoloader(object):
             if exc.code == 404:
                 logger.error('404 Not Found on: %s', url)
             elif exc.code == 401:
-                logger.error('401 Unauthorized (bad credentials?) on: %s', url)
+                logger.debug('401 Unauthorized on: %s', url)
+                raise AutoloaderError
             else:
                 logger.error('%s returned HTTP %s instead of 200.', url, exc.code)
             raise HandledError
@@ -204,7 +206,8 @@ class Autoloader(object):
         try:
             self._query(request, no_delay=True)
         except AutoloaderError:
-            logger.error('401 Unauthorized (bad credentials?) on: %s', request.get_full_url())
+            message = '%s 401 Unauthorized. Possibly rate limiting or invalid credentials.'
+            logger.error(message, request.get_full_url())
             raise HandledError
 
     def eject(self, tape):
@@ -212,18 +215,35 @@ class Autoloader(object):
 
         Blocks during entire move operation. Once done self.inventory is updated.
 
-        :raise AutoloaderError: Raised if the tape wasn't ejected.
-
         :param str tape: The tape to eject.
         """
+        logger = logging.getLogger('Autoloader.eject')
         slot = self.inventory[tape]
-        request = urllib2.Request(self.url + 'move.cgi')
-        request.data = 'from={}&to=18&submit=submit'.format(slot)
+        slot = int(dict(drive=17, mailslot=18, picker=19).get(slot, slot))
+        data = 'from={}&to=18&submit=submit'.format(slot)
+        logger.debug('Eject POST data: %s', data)
+        request = urllib2.Request(self.url + 'move.cgi', data)
         request.headers['Authorization'] = 'Basic {}'.format(self.auth)
-        html = self._query(request)
-        self.update_inventory(html)
-        if tape in self.inventory and self.inventory[tape] != 'mailslot':
-            raise AutoloaderError
+        request.headers['Content-type'] = 'application/x-www-form-urlencoded'
+        request.headers['Origin'] = self.url.rstrip('/')
+        request.headers['Referer'] = self.url + 'commands.html'
+
+        # Eject tape.
+        while True:
+            try:
+                html = self._query(request)
+            except AutoloaderError:
+                logger.warning('Error while ejecting. Retrying in %s seconds...', self.DELAY_ERROR)
+                time.sleep(self.DELAY_ERROR)
+                continue
+            self.update_inventory(html)
+            if tape not in self.inventory or self.inventory[tape] == 'mailslot':
+                break
+            if self.inventory[tape] == 'drive':
+                logger.warning('Failed, drive locked? Retrying in %s seconds...', self.DELAY_ERROR)
+            else:
+                logger.warning('Tape did not move. Retrying in %s seconds...', self.DELAY_ERROR)
+            time.sleep(self.DELAY_ERROR)
 
     def update_inventory(self, html=None):
         """Get current tape positions in the autoloader and updates self.inventory.
@@ -348,32 +368,6 @@ def combine_config(arguments):
     return {'tapes': tapes, 'host': host_name, 'user': user_name, 'pass': pass_word}
 
 
-def eject_one_tape(autoloader, tapes):
-    """Eject last tape in the sorted list.
-
-    :param Autoloader autoloader: Autoloader class instance.
-    :param list tapes: List of tape labels.
-    """
-    logger = logging.getLogger('eject_one_tape')
-    tape = tapes.pop()
-    left = len(tapes)
-    logger.info('Ejecting %s (%d other%s left)...', tape, left, '' if left == 1 else 's')
-
-    # Eject the tape.
-    try:
-        autoloader.eject(tape)
-    except AutoloaderError:
-        tapes.append(tape)
-    else:
-        return
-
-    # Tape didn't eject.
-    if autoloader.inventory[tape] == 'drive':
-        logger.warning('Tape failed to eject from drive. Drive locked by software? Retrying.')
-    else:
-        logger.info("Autoloader lied, %s didn't eject. Retrying.", tape)
-
-
 def main(config):
     """Main function of program.
 
@@ -382,6 +376,7 @@ def main(config):
     logger = logging.getLogger('main')
     logger.info('Connecting to autoloader and reading tape inventory...')
     autoloader = Autoloader(config['host'], config['user'], config['pass'])
+    autoloader.check_creds()
     autoloader.update_inventory()
 
     # Purge missing tapes.
@@ -407,7 +402,10 @@ def main(config):
             continue
 
         # Eject.
-        eject_one_tape(autoloader, tapes)
+        tape = tapes.pop()
+        left = len(tapes)
+        logger.info('Ejecting %s (%d other%s left)...', tape, left, '' if left == 1 else 's')
+        autoloader.eject(tape)
 
     total = len(config['tapes'])
     logger.info('Ejected %d tape%s.', total, '' if total == 1 else 's')
