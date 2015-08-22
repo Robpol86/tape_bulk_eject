@@ -27,21 +27,9 @@ def test(monkeypatch):
 
     autoloader = AutoLoader('124t.local', '', '')
     autoloader.update_inventory()
-    expected = {
-        '1': '', '2': '', '3': '', '4': '', '5': '', '6': '', '7': '', '8': '',
-        '9': '', '10': '', '11': '', '12': '', '13': '', '14': '',
-        '15': '00007FA',
-        '16': '00008FA',
-        'drive': '', 'picker': '', 'mailslot': '',
-    }
+    expected = {'00007FA': '15', '00008FA': '16'}
     assert autoloader.inventory == expected
 
     autoloader.eject('00008FA')
-    expected = {
-        '1': '', '2': '', '3': '', '4': '', '5': '', '6': '', '7': '', '8': '',
-        '9': '', '10': '', '11': '', '12': '', '13': '', '14': '',
-        '15': '00007FA',
-        '16': '',
-        'drive': '', 'picker': '', 'mailslot': '00008FA',
-    }
+    expected = {'00007FA': '15', '00008FA': 'mailslot'}
     assert autoloader.inventory == expected

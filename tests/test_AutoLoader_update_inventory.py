@@ -18,13 +18,10 @@ def test_bad_html(monkeypatch, caplog):
     assert log == 'Invalid HTML, found no regex matches.'
 
 
-@pytest.mark.parametrize('html,expected', [
-    ('<center><img src="" title="" onclick="x">', 'Attribute "onclick" in img tag is invalid: x'),
-    ('<center><img src="" title="" onclick="from_to(slot0)">', 'Unknown slot: 0'),
-])
-def test_bad_attrs(monkeypatch, caplog, html, expected):
+def test_bad_attrs(monkeypatch, caplog):
     def urlopen(_):
-        return StringIO.StringIO('<img src="ignore.me" onclick="from_to(slot1)">' + html)
+        html = '<img src="ign" onclick="from_to(slot1)"><center><img src="" title="" onclick="x">'
+        return StringIO.StringIO(html)
     monkeypatch.setattr('urllib2.urlopen', urlopen)
 
     autoloader = AutoLoader('host', '', '')
@@ -32,7 +29,7 @@ def test_bad_attrs(monkeypatch, caplog, html, expected):
         autoloader.update_inventory()
 
     log = caplog.records()[-1].message
-    assert log == expected
+    assert log == 'Attribute "onclick" in img tag is invalid: x'
 
 
 def test_valid(monkeypatch):
@@ -61,25 +58,32 @@ def test_valid(monkeypatch):
     autoloader = AutoLoader('host', '', '')
     autoloader.update_inventory()
     expected = {
-        '1': '00001FA',
-        '2': '00002FA',
-        '3': '00003FA',
-        '4': '00004FA',
-        '5': '00005FA',
-        '6': '00006FA',
-        '7': '00007FA',
-        '8': '00008FA',
-        '9': '', '10': '', '11': '', '12': '', '13': '', '14': '', '15': '',
-        '16': '000016FA',
-        'drive': '000019FA',
-        'picker': '000018FA',
-        'mailslot': '000017FA',
+        '00001FA': '1',
+        '00002FA': '2',
+        '00003FA': '3',
+        '00004FA': '4',
+        '00005FA': '5',
+        '00006FA': '6',
+        '00007FA': '7',
+        '00008FA': '8',
+        '000016FA': '16',
+        '000019FA': 'drive',
+        '000018FA': 'picker',
+        '000017FA': 'mailslot',
     }
     assert autoloader.inventory == expected
 
     def urlopen(_):
         html = """
             <center>
+                <img src="tape.gif" title="00001FA" onclick="from_to(slot1)" />
+                <img src="tape.gif" title="00002FA" onclick="from_to(slot2)" />
+                <img src="tape.gif" title="00003FA" onclick="from_to(slot3)" />
+                <img src="tape.gif" title="00004FA" onclick="from_to(slot4)" />
+                <img src="tape.gif" title="00005FA" onclick="from_to(slot5)" />
+                <img src="tape.gif" title="00006FA" onclick="from_to(slot6)" />
+                <img src="tape.gif" title="00007FA" onclick="from_to(slot7)" />
+                <img src="tape.gif" title="00008FA" onclick="from_to(slot8)" />
                 <img src="tape.gif" title="10016FA" onclick="from_to(slot16)" />
                 <img src="tape.gif" title="Empty" onclick="from_to(mailslot)" />
                 <img src="tape.gif" title="Empty" onclick="from_to(picker)" />
@@ -90,18 +94,14 @@ def test_valid(monkeypatch):
     monkeypatch.setattr('urllib2.urlopen', urlopen)
     autoloader.update_inventory()
     expected = {
-        '1': '00001FA',
-        '2': '00002FA',
-        '3': '00003FA',
-        '4': '00004FA',
-        '5': '00005FA',
-        '6': '00006FA',
-        '7': '00007FA',
-        '8': '00008FA',
-        '9': '', '10': '', '11': '', '12': '', '13': '', '14': '', '15': '',
-        '16': '10016FA',
-        'drive': '',
-        'picker': '',
-        'mailslot': '',
+        '00001FA': '1',
+        '00002FA': '2',
+        '00003FA': '3',
+        '00004FA': '4',
+        '00005FA': '5',
+        '00006FA': '6',
+        '00007FA': '7',
+        '00008FA': '8',
+        '10016FA': '16',
     }
     assert autoloader.inventory == expected

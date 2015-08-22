@@ -39,6 +39,12 @@ class ExitDueToError(Exception):
     pass
 
 
+class TapeEjectError(Exception):
+    """Raised when a tape failed to eject."""
+
+    pass
+
+
 class InfoFilter(logging.Filter):
     """Filter out non-info and non-debug logging statements.
 
@@ -101,16 +107,15 @@ class Parser(HTMLParser.HTMLParser):
         """
         logger = logging.getLogger('Parser.update_slot')
         logger.debug('img tag attributes: %s', str(attrs))
-        onclick, title = attrs['onclick'], attrs['title']
+        onclick, tape = attrs['onclick'], attrs['title']
+        if tape == 'Empty':
+            return
         try:
             slot = [i for i in self.RE_ONCLICK.match(onclick).groups() if i][0]
         except AttributeError:
             logger.error('Attribute "onclick" in img tag is invalid: %s', onclick)
             raise ExitDueToError
-        if slot not in self.inventory:
-            logger.error('Unknown slot: %s', slot)
-            raise ExitDueToError
-        self.inventory[slot] = '' if title == 'Empty' else title
+        self.inventory[tape] = slot
 
 
 class AutoLoader(object):
@@ -118,10 +123,10 @@ class AutoLoader(object):
 
     :cvar int DELAY: Number of seconds to wait between queries. The web interface is very fragile.
 
-    :ivar str url: URL prefix of the autoloader (e.g. 'http://192.168.0.50/').
+    :ivar float _last_access: Unix time of last HTTP query.
     :ivar str auth: HTTP basic authentication credentials (base64 encoded).
     :ivar dict inventory: Tape positions. 16 slots + drive (17), picker (18), and mail slot (19).
-    :ivar float _last_access: Unix time of last HTTP query.
+    :ivar str url: URL prefix of the autoloader (e.g. 'http://192.168.0.50/').
     """
 
     DELAY = 10
@@ -133,13 +138,10 @@ class AutoLoader(object):
         :param str user_name: HTTP username (e.g. 'admin').
         :param str pass_word: HTTP password.
         """
-        self.url = 'http://{}/'.format(host_name)
-        self.auth = base64.standard_b64encode(':'.join((user_name, pass_word)))
-
-        keys = [str(i) for i in range(1, 17)] + ['drive', 'picker', 'mailslot']
-        self.inventory = {k: '' for k in keys}
-
         self._last_access = time.time() - self.DELAY
+        self.auth = base64.standard_b64encode(':'.join((user_name, pass_word)))
+        self.inventory = dict()
+        self.url = 'http://{}/'.format(host_name)
 
     def _query(self, request):
         """Query the autoloader's web interface. Enforces delay timer.
@@ -184,29 +186,35 @@ class AutoLoader(object):
 
         Blocks during entire move operation. Once done self.inventory is updated.
 
+        :raises TapeEjectError: Raised if the tape wasn't ejected.
+
         :param str tape: The tape to eject.
         """
-        slot = [k for k, v in self.inventory.iteritems() if v == tape][0]
+        slot = self.inventory[tape]
         request = urllib2.Request(self.url + 'move.cgi')
         request.data = 'from={}&to=18&submit=submit'.format(slot)
         request.headers['Authorization'] = 'Basic {}'.format(self.auth)
         html = self._query(request)
         self.update_inventory(html)
+        if tape in self.inventory and self.inventory[tape] != 'mailslot':
+            raise TapeEjectError
 
     def update_inventory(self, html=None):
         """Get current tape positions in the autoloader and updates self.inventory.
 
         :param str html: Parse this html if set. Otherwise requests HTML from autoloader.
         """
+        logger = logging.getLogger('AutoLoader.update_inventory')
         if not html:
             request = urllib2.Request(self.url + 'commands.html')
             html = self._query(request)
         if not Parser.RE_ONCLICK.search(html):
-            logger = logging.getLogger('AutoLoader.update_inventory')
             logger.error('Invalid HTML, found no regex matches.')
             raise ExitDueToError
         parser = Parser(self.inventory)
+        self.inventory.clear()
         parser.feed(html)
+        logger.debug('Inventory is: %s', str(self.inventory))
 
 
 def get_arguments(argv=None):
@@ -216,8 +224,8 @@ def get_arguments(argv=None):
 
     :return: Argparse Namespace object.
     """
-    prog = os.path.basename(__file__).replace('.pyc', '.py')
-    parser = argparse.ArgumentParser(prog=prog, description=__doc__)
+    program = os.path.basename(__file__).replace('.pyc', '.py')
+    parser = argparse.ArgumentParser(prog=program, description=__doc__)
     parser.add_argument('-v', '--verbose', action='store_true', help='Print debug messages.')
     parser.add_argument('tapes', nargs='+', metavar='TAPE', type=str,
                         help='list of tapes, space or | delimited.')
@@ -322,17 +330,17 @@ def main(config):
     autoloader = AutoLoader(config['host'], config['user'], config['pass'])
     autoloader.update_inventory()
     for tape in config['tapes']:
-        if tape not in autoloader.inventory.values():
+        if tape not in autoloader.inventory:
             logger.error('Requested tape not found in autoloader: %s', tape)
             raise ExitDueToError
 
     while config['tapes']:
         # Make sure mailslot and picker are clear.
-        if autoloader.inventory['mailslot']:
+        if 'mailslot' in autoloader.inventory.values():
             logger.info('Tape in mailslot, remove to continue...')
             autoloader.update_inventory()
             continue
-        if autoloader.inventory['picker']:
+        if 'picker' in autoloader.inventory.values():
             logger.info('Tape in picker, remove to continue...')
             autoloader.update_inventory()
             continue
