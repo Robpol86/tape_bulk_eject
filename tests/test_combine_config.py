@@ -1,11 +1,11 @@
 import pytest
 
-from tape_bulk_eject import combine_config, get_arguments, ExitDueToError
+from tape_bulk_eject import combine_config, get_arguments, HandledError
 
 
 def test_bad_args(caplog):
     args = get_arguments([''])
-    with pytest.raises(ExitDueToError):
+    with pytest.raises(HandledError):
         combine_config(args)
     log = caplog.records()[-1].message
     assert log == 'No tapes specified.'
@@ -15,7 +15,7 @@ def test_remainder(monkeypatch, tmpdir, caplog):
     pv124t_json = tmpdir.join('.pv124t.json')
     monkeypatch.setattr('os.path.expanduser', lambda _: str(tmpdir))
     args = get_arguments(['A00001L3'])
-    with pytest.raises(ExitDueToError):
+    with pytest.raises(HandledError):
         combine_config(args)
     log = caplog.records()[-1].message
     expected = 'Failed to read {}: {}'.format(
@@ -25,7 +25,7 @@ def test_remainder(monkeypatch, tmpdir, caplog):
     assert log == expected
 
     pv124t_json.ensure()  # Create empty file.
-    with pytest.raises(ExitDueToError):
+    with pytest.raises(HandledError):
         combine_config(args)
     log = caplog.records()[-1].message
     expected = 'Failed to parse json in {}: {}'.format(
@@ -35,7 +35,7 @@ def test_remainder(monkeypatch, tmpdir, caplog):
     assert log == expected
 
     pv124t_json.write('\x00\x01\x02\x03')  # Write binary garbage.
-    with pytest.raises(ExitDueToError):
+    with pytest.raises(HandledError):
         combine_config(args)
     log = caplog.records()[-1].message
     expected = 'Failed to parse json in {}: {}'.format(
@@ -46,19 +46,19 @@ def test_remainder(monkeypatch, tmpdir, caplog):
 
     for json in ('[]', '0', '0.1', 'false', 'null', '"test"'):
         pv124t_json.write(json)  # Unexpected valid JSON. Should be a dict.
-        with pytest.raises(ExitDueToError):
+        with pytest.raises(HandledError):
             combine_config(args)
         log = caplog.records()[-1].message
         assert log == 'JSON data not a dictionary.'
 
     pv124t_json.write('{}')  # Missing key.
-    with pytest.raises(ExitDueToError):
+    with pytest.raises(HandledError):
         combine_config(args)
     log = caplog.records()[-1].message
     assert log == 'Missing key from JSON dict: host'
 
     pv124t_json.write('{"host": "", "user": "user", "pass": "pass"}')  # Empty value.
-    with pytest.raises(ExitDueToError):
+    with pytest.raises(HandledError):
         combine_config(args)
     log = caplog.records()[-1].message
     assert log == 'One or more JSON value is empty.'

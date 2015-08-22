@@ -4,14 +4,14 @@ import urllib2
 
 import pytest
 
-from tape_bulk_eject import AutoLoader, ExitDueToError
+from tape_bulk_eject import Autoloader, HandledError
 
 
 @pytest.mark.parametrize('host', ['.', 'i_do_not_exist'])
 def test_bad_host(caplog, host):
-    autoloader = AutoLoader(host, 'user', 'pw')
+    autoloader = Autoloader(host, 'user', 'pw')
     request = urllib2.Request(autoloader.url)
-    with pytest.raises(ExitDueToError):
+    with pytest.raises(HandledError):
         getattr(autoloader, '_query')(request)
     log = caplog.records()[-1].message
     assert log.startswith('URL "http://{}/" is invalid: '.format(host))
@@ -24,9 +24,9 @@ def test_bad_host_creds(monkeypatch, caplog, code):
         raise urllib2.HTTPError(handler.get_full_url(), code, '', None, None)
     monkeypatch.setattr('urllib2.urlopen', urlopen)
 
-    autoloader = AutoLoader('124t.local', 'user', 'pw')
+    autoloader = Autoloader('124t.local', 'user', 'pw')
     request = urllib2.Request(autoloader.url)
-    with pytest.raises(ExitDueToError):
+    with pytest.raises(HandledError):
         getattr(autoloader, '_query')(request)
     log = caplog.records()[-1].message
     if code == 404:
@@ -43,10 +43,10 @@ def test_rate_limiting(monkeypatch):
         return StringIO.StringIO('test67')
     monkeypatch.setattr('urllib2.urlopen', urlopen)
 
-    autoloader = AutoLoader('124t.local', 'user', 'pw')
+    autoloader = Autoloader('124t.local', 'user', 'pw')
     request = urllib2.Request(autoloader.url)
     start_time = time.time()
-    monkeypatch.setattr(AutoLoader, 'DELAY', 1)
+    monkeypatch.setattr(Autoloader, 'DELAY', 1)
 
     assert getattr(autoloader, '_query')(request) == 'test67'
     assert time.time() - start_time < 0.1

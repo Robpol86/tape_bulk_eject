@@ -2,7 +2,7 @@ import StringIO
 
 import pytest
 
-from tape_bulk_eject import AutoLoader, ExitDueToError
+from tape_bulk_eject import Autoloader, HandledError
 
 
 def test_bad_html(monkeypatch, caplog):
@@ -10,8 +10,8 @@ def test_bad_html(monkeypatch, caplog):
         return StringIO.StringIO('This is not HTML.')
     monkeypatch.setattr('urllib2.urlopen', urlopen)
 
-    autoloader = AutoLoader('host', '', '')
-    with pytest.raises(ExitDueToError):
+    autoloader = Autoloader('host', '', '')
+    with pytest.raises(HandledError):
         autoloader.update_inventory()
 
     log = caplog.records()[-1].message
@@ -24,8 +24,8 @@ def test_bad_attrs(monkeypatch, caplog):
         return StringIO.StringIO(html)
     monkeypatch.setattr('urllib2.urlopen', urlopen)
 
-    autoloader = AutoLoader('host', '', '')
-    with pytest.raises(ExitDueToError):
+    autoloader = Autoloader('host', '', '')
+    with pytest.raises(HandledError):
         autoloader.update_inventory()
 
     log = caplog.records()[-1].message
@@ -54,8 +54,8 @@ def test_valid(monkeypatch):
         """
         return StringIO.StringIO(html)
     monkeypatch.setattr('urllib2.urlopen', urlopen)
-    monkeypatch.setattr(AutoLoader, 'DELAY', 0.01)
-    autoloader = AutoLoader('host', '', '')
+    monkeypatch.setattr(Autoloader, 'DELAY', 0.01)
+    autoloader = Autoloader('host', '', '')
     autoloader.update_inventory()
     expected = {
         '00001FA': '1',

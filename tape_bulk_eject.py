@@ -30,7 +30,7 @@ __author__ = '@Robpol86'
 __license__ = 'MIT'
 
 
-class ExitDueToError(Exception):
+class HandledError(Exception):
     """Raised on a handled error Causes exit code 1.
 
     Any other exception raised is considered a bug.
@@ -39,8 +39,12 @@ class ExitDueToError(Exception):
     pass
 
 
-class TapeEjectError(Exception):
-    """Raised when a tape failed to eject."""
+class AutoloaderError(Exception):
+    """Raised when the autoloader replies with HTTP 401.
+
+    The stupid thing uses 401 for everything. Invalid credentials, locked drive, bad request data,
+    and even rate limiting.
+    """
 
     pass
 
@@ -62,8 +66,8 @@ class InfoFilter(logging.Filter):
         return record.levelno <= logging.INFO
 
 
-class Parser(HTMLParser.HTMLParser):
-    """Parses commands.html from a Dell PowerVault 124t tape autoloader's web interface.
+class TapePos(HTMLParser.HTMLParser):
+    """Parses commands.html and gets current tape positions.
 
     :cvar RE_ONCLICK: <img /> onclick attribute parser (e.g. onClick="from_to(mailslot)").
 
@@ -103,9 +107,11 @@ class Parser(HTMLParser.HTMLParser):
     def update_slot(self, attrs):
         """Update self.inventory with current state of a single slot.
 
+        :raise HandledError: On handled errors. Logs before raising. Program should exit.
+
         :param dict attrs: Attributes of <img /> tag representing a slot.
         """
-        logger = logging.getLogger('Parser.update_slot')
+        logger = logging.getLogger('TapePos.update_slot')
         logger.debug('img tag attributes: %s', str(attrs))
         onclick, tape = attrs['onclick'], attrs['title']
         if tape == 'Empty':
@@ -114,22 +120,24 @@ class Parser(HTMLParser.HTMLParser):
             slot = [i for i in self.RE_ONCLICK.match(onclick).groups() if i][0]
         except AttributeError:
             logger.error('Attribute "onclick" in img tag is invalid: %s', onclick)
-            raise ExitDueToError
+            raise HandledError
         self.inventory[tape] = slot
 
 
-class AutoLoader(object):
+class Autoloader(object):
     """Interfaces with the autoloader over its HTTP web interface.
 
     :cvar int DELAY: Number of seconds to wait between queries. The web interface is very fragile.
+    :cvar int DELAY_ERROR: Number of seconds to wait if we get an error from the autoloader.
 
-    :ivar float _last_access: Unix time of last HTTP query.
     :ivar str auth: HTTP basic authentication credentials (base64 encoded).
     :ivar dict inventory: Tape positions. 16 slots + drive (17), picker (18), and mail slot (19).
+    :ivar float last_access: Unix time of last HTTP query.
     :ivar str url: URL prefix of the autoloader (e.g. 'http://192.168.0.50/').
     """
 
     DELAY = 10
+    DELAY_ERROR = 15
 
     def __init__(self, host_name, user_name, pass_word):
         """Constructor.
@@ -138,25 +146,31 @@ class AutoLoader(object):
         :param str user_name: HTTP username (e.g. 'admin').
         :param str pass_word: HTTP password.
         """
-        self._last_access = time.time() - self.DELAY
         self.auth = base64.standard_b64encode(':'.join((user_name, pass_word)))
         self.inventory = dict()
+        self.last_access = time.time() - self.DELAY
         self.url = 'http://{}/'.format(host_name)
 
-    def _query(self, request):
+    def _query(self, request, no_delay=False):
         """Query the autoloader's web interface. Enforces delay timer.
 
+        :raise HandledError: On handled errors. Logs before raising. Program should exit.
+
         :param urllib2.Request request: urllib2.Request instance with data/headers already added.
+        :param bool no_delay: Exclude this query from sleeping and updating last_access.
 
         :return: HTML response payload.
         :rtype: str
         """
-        logger = logging.getLogger('AutoLoader._query')
-        sleep_for = max(0, self.DELAY - (time.time() - self._last_access))
-        if sleep_for:
-            logger.debug('Sleeping for %d second(s).', sleep_for)
-            time.sleep(sleep_for)
-            logger.debug('Done sleeping.')
+        logger = logging.getLogger('Autoloader._query')
+        if not no_delay:
+            sleep_for = max(0, self.DELAY - (time.time() - self.last_access))
+            if sleep_for:
+                logger.debug('Sleeping for %d second(s).', sleep_for)
+                time.sleep(sleep_for)
+                logger.debug('Done sleeping.')
+            self.last_access = time.time()
+            logger.debug('Set last_access to %f', self.last_access)
 
         # Send request and get response.
         try:
@@ -169,24 +183,36 @@ class AutoLoader(object):
                 logger.error('401 Unauthorized (bad credentials?) on: %s', url)
             else:
                 logger.error('%s returned HTTP %s instead of 200.', url, exc.code)
-            raise ExitDueToError
+            raise HandledError
         except urllib2.URLError as exc:
             url = request.get_full_url()
             logger.error('URL "%s" is invalid: %s', url, str(exc))
-            raise ExitDueToError
+            raise HandledError
 
         html = response.read(102400)
         logger.debug('Got HTML from autoloader: %s', html)
-        self._last_access = time.time()
-        logger.debug('Set _last_access to %f', self._last_access)
         return html
+
+    def check_creds(self):
+        """Check credentials by going to config_opts.html. Doesn't change anything.
+
+        :raise HandledError: On handled errors. Logs before raising. Program should exit.
+        """
+        logger = logging.getLogger('Autoloader.auth')
+        request = urllib2.Request(self.url + 'config_ops.html')
+        request.headers['Authorization'] = 'Basic {}'.format(self.auth)
+        try:
+            self._query(request, no_delay=True)
+        except AutoloaderError:
+            logger.error('401 Unauthorized (bad credentials?) on: %s', request.get_full_url())
+            raise HandledError
 
     def eject(self, tape):
         """Perform tape move to the mailslot thereby "ejecting" it.
 
         Blocks during entire move operation. Once done self.inventory is updated.
 
-        :raises TapeEjectError: Raised if the tape wasn't ejected.
+        :raise AutoloaderError: Raised if the tape wasn't ejected.
 
         :param str tape: The tape to eject.
         """
@@ -197,21 +223,23 @@ class AutoLoader(object):
         html = self._query(request)
         self.update_inventory(html)
         if tape in self.inventory and self.inventory[tape] != 'mailslot':
-            raise TapeEjectError
+            raise AutoloaderError
 
     def update_inventory(self, html=None):
         """Get current tape positions in the autoloader and updates self.inventory.
 
+        :raise HandledError: On handled errors. Logs before raising. Program should exit.
+
         :param str html: Parse this html if set. Otherwise requests HTML from autoloader.
         """
-        logger = logging.getLogger('AutoLoader.update_inventory')
+        logger = logging.getLogger('Autoloader.update_inventory')
         if not html:
             request = urllib2.Request(self.url + 'commands.html')
             html = self._query(request)
-        if not Parser.RE_ONCLICK.search(html):
+        if not TapePos.RE_ONCLICK.search(html):
             logger.error('Invalid HTML, found no regex matches.')
-            raise ExitDueToError
-        parser = Parser(self.inventory)
+            raise HandledError
+        parser = TapePos(self.inventory)
         self.inventory.clear()
         parser.feed(html)
         logger.debug('Loaded tapes: %s', '|'.join(sorted(self.inventory)))
@@ -264,6 +292,8 @@ def setup_logging(arguments, logger=None):
 def combine_config(arguments):
     """Read configuration file and validate command line arguments.
 
+    :raise HandledError: On handled errors. Logs before raising. Program should exit.
+
     :param arguments: Argparse Namespace object from get_arguments().
 
     :return: User input data.
@@ -276,7 +306,7 @@ def combine_config(arguments):
     tapes = sorted(set('|'.join(arguments.tapes).replace(' ', '|').strip().strip('|').split('|')))
     if not tapes or not all(tapes):
         logger.error('No tapes specified.')
-        raise ExitDueToError
+        raise HandledError
     logger.debug('Got: %s', str(tapes))
 
     # Read config file.
@@ -287,7 +317,7 @@ def combine_config(arguments):
             json_file_data = handle.read(1024)
     except IOError as exc:
         logger.error('Failed to read %s: %s', json_file, str(exc))
-        raise ExitDueToError
+        raise HandledError
     logger.debug('Got: %s', json_file_data)
 
     # Parse config file json.
@@ -295,7 +325,7 @@ def combine_config(arguments):
         json_parsed = json.loads(json_file_data)
     except ValueError as exc:
         logger.error('Failed to parse json in %s: %s', json_file, exc.message)
-        raise ExitDueToError
+        raise HandledError
     logger.debug('Got: %s', str(json_parsed))
 
     # Read values from json.
@@ -305,15 +335,15 @@ def combine_config(arguments):
         pass_word = json_parsed['pass']
     except TypeError:
         logger.error('JSON data not a dictionary.')
-        raise ExitDueToError
+        raise HandledError
     except KeyError as exc:
         logger.error('Missing key from JSON dict: %s', exc.message)
-        raise ExitDueToError
+        raise HandledError
 
     # Catch empty values.
     if not all((host_name, user_name, pass_word)):
         logger.error('One or more JSON value is empty.')
-        raise ExitDueToError
+        raise HandledError
 
     return {'tapes': tapes, 'host': host_name, 'user': user_name, 'pass': pass_word}
 
@@ -321,7 +351,7 @@ def combine_config(arguments):
 def eject_one_tape(autoloader, tapes):
     """Eject last tape in the sorted list.
 
-    :param AutoLoader autoloader: AutoLoader class instance.
+    :param Autoloader autoloader: Autoloader class instance.
     :param list tapes: List of tape labels.
     """
     logger = logging.getLogger('eject_one_tape')
@@ -332,7 +362,7 @@ def eject_one_tape(autoloader, tapes):
     # Eject the tape.
     try:
         autoloader.eject(tape)
-    except TapeEjectError:
+    except AutoloaderError:
         tapes.append(tape)
     else:
         return
@@ -351,7 +381,7 @@ def main(config):
     """
     logger = logging.getLogger('main')
     logger.info('Connecting to autoloader and reading tape inventory...')
-    autoloader = AutoLoader(config['host'], config['user'], config['pass'])
+    autoloader = Autoloader(config['host'], config['user'], config['pass'])
     autoloader.update_inventory()
 
     # Purge missing tapes.
@@ -387,7 +417,7 @@ if __name__ == '__main__':
     signal.signal(signal.SIGINT, lambda *_: getattr(os, '_exit')(0))  # Properly handle Control+C.
     try:
         main(combine_config(setup_logging(get_arguments())))
-    except ExitDueToError:
+    except HandledError:
         logging.critical('EXITING DUE TO ERROR!')
         sys.exit(1)
     logging.info('Success.')

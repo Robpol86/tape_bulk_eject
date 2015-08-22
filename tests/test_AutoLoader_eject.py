@@ -1,6 +1,6 @@
 import StringIO
 
-from tape_bulk_eject import AutoLoader
+from tape_bulk_eject import Autoloader
 
 
 def test(monkeypatch):
@@ -23,9 +23,9 @@ def test(monkeypatch):
             """
         return StringIO.StringIO(html)
     monkeypatch.setattr('urllib2.urlopen', urlopen)
-    monkeypatch.setattr(AutoLoader, 'DELAY', 0.01)
+    monkeypatch.setattr(Autoloader, 'DELAY', 0.01)
 
-    autoloader = AutoLoader('124t.local', '', '')
+    autoloader = Autoloader('124t.local', '', '')
     autoloader.update_inventory()
     expected = {'00007FA': '15', '00008FA': '16'}
     assert autoloader.inventory == expected
