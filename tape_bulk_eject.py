@@ -2,7 +2,7 @@
 """Eject multiple tapes from a Dell PowerVault 124T autoloader in one go.
 
 No way to do this over SCSI. Instead this works over HTTP through the
-autoloader's web interface. From: https://github.com/Robpol86/tape_bulk_eject
+autoloader's web interface. From: https://github.com/Robpol86/tape_bulk_eject.
 
 Supply credentials through ~/.pv124t.json:
 {
@@ -274,7 +274,7 @@ def get_arguments(argv=None):
     """
     program = os.path.basename(__file__).replace('.pyc', '.py')
     parser = argparse.ArgumentParser(prog=program, description=__doc__)
-    parser.add_argument('-v', '--verbose', action='store_true', help='Print debug messages.')
+    parser.add_argument('-v', '--verbose', action='store_true', help='print debug messages')
     parser.add_argument('tapes', nargs='+', metavar='TAPE', type=str,
                         help='list of tapes, space or | delimited.')
     return parser.parse_args(args=argv if argv is not None else sys.argv[1:])
