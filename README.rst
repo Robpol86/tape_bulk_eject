@@ -21,8 +21,14 @@ Install:
 
 .. code:: bash
 
-    wget "https://raw.githubusercontent.com/Robpol86/tape_bulk_eject/master/tape_bulk_eject.py"
+    wget "https://cdn.rawgit.com/Robpol86/tape_bulk_eject/master/tape_bulk_eject.py"
     # No requirements to install!
+
+Example
+=======
+
+.. image:: https://github.com/Robpol86/tape_bulk_eject/raw/master/example.gif?raw=true
+   :alt: Example
 
 Changelog
 =========
