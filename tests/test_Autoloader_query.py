@@ -4,7 +4,7 @@ import urllib2
 
 import pytest
 
-from tape_bulk_eject import Autoloader, HandledError
+from tape_bulk_eject import Autoloader, AutoloaderError, HandledError
 
 
 @pytest.mark.parametrize('host', ['.', 'i_do_not_exist'])
@@ -18,7 +18,7 @@ def test_bad_host(caplog, host):
     assert log.endswith('not known>')
 
 
-@pytest.mark.parametrize('code', [404, 500])
+@pytest.mark.parametrize('code', [404, 401, 500])
 def test_http_errors(monkeypatch, caplog, code):
     def urlopen(handler):
         raise urllib2.HTTPError(handler.get_full_url(), code, '', None, None)
@@ -26,11 +26,13 @@ def test_http_errors(monkeypatch, caplog, code):
 
     autoloader = Autoloader('124t.local', 'user', 'pw')
     request = urllib2.Request(autoloader.url)
-    with pytest.raises(HandledError):
+    with pytest.raises(AutoloaderError if code == 401 else HandledError):
         getattr(autoloader, '_query')(request)
     log = caplog.records()[-1].message
     if code == 404:
         expected = '404 Not Found on: http://124t.local/'
+    elif code == 401:
+        expected = '401 Unauthorized on: http://124t.local/'
     else:
         expected = 'http://124t.local/ returned HTTP {} instead of 200.'.format(code)
     assert log == expected
