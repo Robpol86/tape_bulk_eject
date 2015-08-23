@@ -381,7 +381,7 @@ def main(config):
 
     # Purge missing tapes.
     tapes = list()
-    for tape in config['tapes']:
+    for tape in reversed(config['tapes']):
         if tape not in autoloader.inventory:
             logger.info('%s not in autoloader, skipping.', tape)
             continue
@@ -394,10 +394,9 @@ def main(config):
         return
 
     while tapes:
-        # Make sure mailslot and picker are clear.
-        blockers = sorted(s for s in autoloader.inventory.values() if s in ('mailslot', 'picker'))
-        if blockers:
-            logger.info('Tape in %s, remove to continue...', blockers[0])
+        # Make sure mailslot is clear.
+        if 'mailslot' in autoloader.inventory.values():
+            logger.info('Tape in mailslot, remove to continue...')
             autoloader.update_inventory()
             continue
 
